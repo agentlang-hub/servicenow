@@ -1,2 +1,1 @@
-# servicenow
-The ServiceNow resolver
+# ServiceNow Resolver
