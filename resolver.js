@@ -1,5 +1,9 @@
-import { encodeForBasicAuth } from '../node_modules/agentlang/out/utils/http.js'
-import { makeInstance, isInstanceOfType } from "../node_modules/agentlang/out/runtime/module.js"
+const al_http = await import(`${process.cwd()}/node_modules/agentlang/out/utils/http.js`)
+const al_module = await import(`${process.cwd()}/node_modules/agentlang/out/runtime/module.js`)
+
+const encodeForBasicAuth = al_http.encodeForBasicAuth
+const makeInstance = al_module.makeInstance
+const isInstanceOfType = al_module.isInstanceOfType
 
 const instanceUrl = process.env['SERVICENOW_URL']
 const username = process.env['SERVICENOW_USERNAME']
