@@ -76,7 +76,6 @@ function asIncidentInstance(data, sys_id) {
     return makeInstance('servicenow', 'incident', new Map().set('data', data).set('sys_id', data.sys_id || sys_id))
 }
 
-
 export async function updateInstance(resolver, inst, newAttrs) {
     if (isIncident(inst)) {
         const sys_id = getSysId(inst)
