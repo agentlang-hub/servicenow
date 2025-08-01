@@ -15,10 +15,8 @@ const standardHeaders = {
     'Content-Type': 'application/json' // Add other headers as needed
 }
 
-async function getIncidents(sysId, count) {
-    const apiUrl = sysId ?
-        `${instanceUrl}/api/now/table/incident/${sysId}` :
-        `${instanceUrl}/api/now/table/incident?sysparm_limit=${count}&sysparm_query=active=true^ORDERBYDESCsys_updated_on`;
+async function getComments(sysId) {
+    const apiUrl = `${instanceUrl}/api/now/table/sys_journal_field?sysparm_display_value=true&sysparm_query=element=comments^element_id=${sysId}`
     try {
         const response = await fetch(apiUrl, {
             method: 'GET',
@@ -31,6 +29,33 @@ async function getIncidents(sysId, count) {
 
         const data = await response.json();
         return data.result
+    } catch (error) {
+        return []
+    }
+}
+
+async function getIncidents(sysId, count) {
+    const apiUrl = sysId ?
+        `${instanceUrl}/api/now/table/incident/${sysId}` :
+        `${instanceUrl}/api/now/table/incident?sysparm_limit=${count}&sysparm_query=active=true^ORDERBYDESCsys_created_on`;
+    try {
+        const response = await fetch(apiUrl, {
+            method: 'GET',
+            headers: standardHeaders
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status} ${response.text} ${response.statusText}`);
+        }
+
+        const result = await response.json();
+        const data = result.result
+        for (let i = 0; i < data.length; ++i) {
+            const d = data[i]
+            const comments = await getComments(d.sys_id)
+            d.comments = comments
+        }
+        return data
     } catch (error) {
         return { error: error.message };
     }
@@ -89,15 +114,18 @@ export async function updateInstance(resolver, inst, newAttrs) {
 export async function queryInstances(resolver, inst, queryAll) {
     if (isIncident(inst)) {
         const sys_id = inst.lookupQueryVal('sys_id')
+        let r = []
         if (sys_id) {
-            let r = await getIncidents(pathQueryValue(inst), queryAll ? 100 : 1)
-            if (!(r instanceof Array)) {
-                r = [r]
-            }
-            return r.map(asIncidentInstance)
+            r = await getIncidents(pathQueryValue(inst), queryAll ? 100 : 1)
+        } else if (queryAll) {
+            r = await getIncidents(undefined, 1)
         } else {
             return []
         }
+        if (!(r instanceof Array)) {
+            r = [r]
+        }
+        return r.map(asIncidentInstance)
     } else {
         return []
     }
