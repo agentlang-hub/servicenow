@@ -1,26 +1,44 @@
 const al_http = await import(`${process.cwd()}/node_modules/agentlang/out/utils/http.js`)
 const al_module = await import(`${process.cwd()}/node_modules/agentlang/out/runtime/module.js`)
+const al_integmanager = await import(`${process.cwd()}/node_modules/agentlang/out/runtime/integrations.js`)
 
 const encodeForBasicAuth = al_http.encodeForBasicAuth
 const makeInstance = al_module.makeInstance
 const isInstanceOfType = al_module.isInstanceOfType
 
-const instanceUrl = process.env['SERVICENOW_URL']
-const username = process.env['SERVICENOW_USERNAME']
-const password = process.env['SERVICENOW_PASSWORD']
-const authorizationHeader = `Basic ${encodeForBasicAuth(username, password)}`
+function getConfig(k) {
+    return al_integmanager.getIntegrationConfig('servicenow', k)
+}
 
-const standardHeaders = {
-    'Authorization': authorizationHeader,
-    'Content-Type': 'application/json' // Add other headers as needed
+let instUrl = undefined
+
+function getInstanceUrl() {
+    if (instUrl == undefined) {
+	instUrl = getConfig('url')
+    }
+    return instUrl
+}
+
+let stdHdrs = undefined
+
+function makeStandardHeaders () {
+    if (stdHdrs == undefined) {
+	const username = getConfig('username')
+	const password = getConfig('password')
+	stdHdrs = { 'Authorization': `Basic ${encodeForBasicAuth(username, password)}`,
+		    'Content-Type': 'application/json' // Add other headers as needed
+		  }
+    }
+    return stdHdrs
 }
 
 async function getComments(sysId) {
+    const instanceUrl = getInstanceUrl()
     const apiUrl = `${instanceUrl}/api/now/table/sys_journal_field?sysparm_display_value=true&sysparm_query=element=comments^element_id=${sysId}`
     try {
         const response = await fetch(apiUrl, {
             method: 'GET',
-            headers: standardHeaders
+            headers: makeStandardHeaders()
         });
 
         if (!response.ok) {
@@ -35,13 +53,14 @@ async function getComments(sysId) {
 }
 
 async function getIncidents(sysId, count) {
+    const instanceUrl = getInstanceUrl()
     const apiUrl = sysId ?
         `${instanceUrl}/api/now/table/incident/${sysId}` :
         `${instanceUrl}/api/now/table/incident?sysparm_limit=${count}&sysparm_query=active=true^ORDERBYDESCsys_created_on`;
     try {
         const response = await fetch(apiUrl, {
             method: 'GET',
-            headers: standardHeaders
+            headers: makeStandardHeaders()
         });
 
         if (!response.ok) {
@@ -62,11 +81,12 @@ async function getIncidents(sysId, count) {
 }
 
 async function updateIncident(sysId, data) {
+    const instanceUrl = getInstanceUrl()
     const apiUrl = `${instanceUrl}/api/now/table/incident/${sysId}`
     try {
         const response = await fetch(apiUrl, {
             method: 'PUT',
-            headers: standardHeaders,
+            headers: makeStandardHeaders(),
             body: JSON.stringify(data),
         });
 
