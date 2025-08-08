@@ -14,20 +14,21 @@ let instUrl = undefined
 
 function getInstanceUrl() {
     if (instUrl == undefined) {
-	instUrl = getConfig('url')
+        instUrl = getConfig('url')
     }
     return instUrl
 }
 
 let stdHdrs = undefined
 
-function makeStandardHeaders () {
+function makeStandardHeaders() {
     if (stdHdrs == undefined) {
-	const username = getConfig('username')
-	const password = getConfig('password')
-	stdHdrs = { 'Authorization': `Basic ${encodeForBasicAuth(username, password)}`,
-		    'Content-Type': 'application/json' // Add other headers as needed
-		  }
+        const username = getConfig('username')
+        const password = getConfig('password')
+        stdHdrs = {
+            'Authorization': `Basic ${encodeForBasicAuth(username, password)}`,
+            'Content-Type': 'application/json' // Add other headers as needed
+        }
     }
     return stdHdrs
 }
@@ -49,6 +50,28 @@ async function getComments(sysId) {
         return data.result
     } catch (error) {
         return []
+    }
+}
+
+async function addComment(sysId, comment) {
+    const instanceUrl = getInstanceUrl()
+    const apiUrl = `${instanceUrl}/api/now/table/incident/${sysId}`
+    const data = { comments: comment }
+    try {
+        const response = await fetch(apiUrl, {
+            method: 'PATCH',
+            headers: makeStandardHeaders(),
+            body: JSON.stringify(data),
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const responseData = await response.json();
+        return responseData;
+    } catch (error) {
+        return { error: error }
     }
 }
 
@@ -81,6 +104,9 @@ async function getIncidents(sysId, count) {
 }
 
 async function updateIncident(sysId, data) {
+    if (data.comment) {
+        return addComment(sysId, data.comment)
+    }
     const instanceUrl = getInstanceUrl()
     const apiUrl = `${instanceUrl}/api/now/table/incident/${sysId}`
     try {
