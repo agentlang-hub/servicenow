@@ -1,28 +1,44 @@
 const al_http = await import(`${process.cwd()}/node_modules/agentlang/out/utils/http.js`)
 const al_module = await import(`${process.cwd()}/node_modules/agentlang/out/runtime/module.js`)
+const al_integmanager = await import(`${process.cwd()}/node_modules/agentlang/out/runtime/integrations.js`)
 
 const encodeForBasicAuth = al_http.encodeForBasicAuth
 const makeInstance = al_module.makeInstance
 const isInstanceOfType = al_module.isInstanceOfType
 
-const instanceUrl = process.env['SERVICENOW_URL']
-const username = process.env['SERVICENOW_USERNAME']
-const password = process.env['SERVICENOW_PASSWORD']
-const authorizationHeader = `Basic ${encodeForBasicAuth(username, password)}`
-
-const standardHeaders = {
-    'Authorization': authorizationHeader,
-    'Content-Type': 'application/json' // Add other headers as needed
+function getConfig(k) {
+    return al_integmanager.getIntegrationConfig('servicenow', k)
 }
 
-async function getIncidents(sysId, count) {
-    const apiUrl = sysId ?
-        `${instanceUrl}/api/now/table/incident/${sysId}` :
-        `${instanceUrl}/api/now/table/incident?sysparm_limit=${count}&sysparm_query=active=true^ORDERBYDESCsys_updated_on`;
+let instUrl = undefined
+
+function getInstanceUrl() {
+    if (instUrl == undefined) {
+	instUrl = getConfig('url')
+    }
+    return instUrl
+}
+
+let stdHdrs = undefined
+
+function makeStandardHeaders () {
+    if (stdHdrs == undefined) {
+	const username = getConfig('username')
+	const password = getConfig('password')
+	stdHdrs = { 'Authorization': `Basic ${encodeForBasicAuth(username, password)}`,
+		    'Content-Type': 'application/json' // Add other headers as needed
+		  }
+    }
+    return stdHdrs
+}
+
+async function getComments(sysId) {
+    const instanceUrl = getInstanceUrl()
+    const apiUrl = `${instanceUrl}/api/now/table/sys_journal_field?sysparm_display_value=true&sysparm_query=element=comments^element_id=${sysId}`
     try {
         const response = await fetch(apiUrl, {
             method: 'GET',
-            headers: standardHeaders
+            headers: makeStandardHeaders()
         });
 
         if (!response.ok) {
@@ -32,16 +48,45 @@ async function getIncidents(sysId, count) {
         const data = await response.json();
         return data.result
     } catch (error) {
+        return []
+    }
+}
+
+async function getIncidents(sysId, count) {
+    const instanceUrl = getInstanceUrl()
+    const apiUrl = sysId ?
+        `${instanceUrl}/api/now/table/incident/${sysId}` :
+        `${instanceUrl}/api/now/table/incident?sysparm_limit=${count}&sysparm_query=active=true^ORDERBYDESCsys_created_on`;
+    try {
+        const response = await fetch(apiUrl, {
+            method: 'GET',
+            headers: makeStandardHeaders()
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status} ${response.text} ${response.statusText}`);
+        }
+
+        const result = await response.json();
+        const data = result.result
+        for (let i = 0; i < data.length; ++i) {
+            const d = data[i]
+            const comments = await getComments(d.sys_id)
+            d.comments = comments
+        }
+        return data
+    } catch (error) {
         return { error: error.message };
     }
 }
 
 async function updateIncident(sysId, data) {
+    const instanceUrl = getInstanceUrl()
     const apiUrl = `${instanceUrl}/api/now/table/incident/${sysId}`
     try {
         const response = await fetch(apiUrl, {
             method: 'PUT',
-            headers: standardHeaders,
+            headers: makeStandardHeaders(),
             body: JSON.stringify(data),
         });
 
@@ -89,15 +134,18 @@ export async function updateInstance(resolver, inst, newAttrs) {
 export async function queryInstances(resolver, inst, queryAll) {
     if (isIncident(inst)) {
         const sys_id = inst.lookupQueryVal('sys_id')
+        let r = []
         if (sys_id) {
-            let r = await getIncidents(pathQueryValue(inst), queryAll ? 100 : 1)
-            if (!(r instanceof Array)) {
-                r = [r]
-            }
-            return r.map(asIncidentInstance)
+            r = await getIncidents(pathQueryValue(inst), queryAll ? 100 : 1)
+        } else if (queryAll) {
+            r = await getIncidents(undefined, 1)
         } else {
             return []
         }
+        if (!(r instanceof Array)) {
+            r = [r]
+        }
+        return r.map(asIncidentInstance)
     } else {
         return []
     }
