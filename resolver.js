@@ -178,10 +178,12 @@ export async function queryInstances(resolver, inst, queryAll) {
 }
 
 async function handleSubs(resolver) {
+    console.log('fetching incidents ...')
     const result = await getIncidents(undefined, 1)
     if (result instanceof Array) {
         for (let i = 0; i < result.length; ++i) {
             const incident = result[i]
+	    console.log('processing incident ' + incident.sys_id)
             await resolver.onSubscription(JSON.stringify(incident))
         }
     }
