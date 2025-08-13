@@ -1,6 +1,6 @@
 module servicenow
 
-import "src/resolver.js" @as r
+import "resolver.js" @as r
 
 entity incident {
     sys_id String @id,
