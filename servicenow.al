@@ -20,7 +20,7 @@ workflow getIncidents {
     {incident? {}}
 }
 
-resolver servicenow ["servicenow/incident"] {
+resolver servicenow [servicenow/incident] {
     update r.updateInstance,
     query r.queryInstances,
     subscribe r.subs
