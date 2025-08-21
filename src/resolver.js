@@ -184,7 +184,8 @@ async function handleSubs(resolver) {
         for (let i = 0; i < result.length; ++i) {
             const incident = result[i]
 	    console.log('processing incident ' + incident.sys_id)
-            await resolver.onSubscription(JSON.stringify(incident))
+	    const inst = asIncidentInstance(JSON.stringify(incident), incident.sys_id)
+            await resolver.onSubscription(inst, true)
         }
     }
 }
