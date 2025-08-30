@@ -7,30 +7,109 @@ const makeInstance = al_module.makeInstance
 const isInstanceOfType = al_module.isInstanceOfType
 
 function getConfig(k) {
-    return al_integmanager.getIntegrationConfig('servicenow', k)
+    try {
+        return al_integmanager.getIntegrationConfig('servicenow', k)
+    } catch (e) {
+        console.error(`Failed to retrieve ServiceNow configuration for key '${k}':`, e.message);
+        return undefined;
+    }
 }
 
 let instUrl = undefined
 
 function getInstanceUrl() {
     if (instUrl == undefined) {
-        instUrl = getConfig('url')
+        instUrl = getConfig('url') || process.env.SERVICENOW_INSTANCE_URL
     }
     return instUrl
 }
 
-let stdHdrs = undefined
+let accessToken = undefined
+let tokenExpiry = undefined
 
-function makeStandardHeaders() {
-    if (stdHdrs == undefined) {
-        const username = getConfig('username')
-        const password = getConfig('password')
-        stdHdrs = {
+function isOAuthConfigured() {
+    const clientId = getConfig('client_id') || process.env.SERVICENOW_CLIENT_ID
+    const clientSecret = getConfig('client_secret') || process.env.SERVICENOW_CLIENT_SECRET
+    const refreshToken = getConfig('refresh_token') || process.env.SERVICENOW_REFRESH_TOKEN
+    return !!(clientId && clientSecret && refreshToken)
+}
+
+async function getAccessToken() {
+    if (accessToken && tokenExpiry && Date.now() < tokenExpiry) {
+        return accessToken
+    }
+
+    const clientId = getConfig('client_id') || process.env.SERVICENOW_CLIENT_ID
+    const clientSecret = getConfig('client_secret') || process.env.SERVICENOW_CLIENT_SECRET
+    const refreshToken = getConfig('refresh_token') || process.env.SERVICENOW_REFRESH_TOKEN
+    const instanceUrl = getInstanceUrl()
+
+    if (!clientId || !clientSecret || !refreshToken) {
+        throw new Error('Missing OAuth 2.0 configuration: client_id, client_secret, or refresh_token')
+    }
+
+    try {
+        const tokenUrl = `${instanceUrl}/oauth_token.do`
+        const response = await fetch(tokenUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            body: new URLSearchParams({
+                grant_type: 'refresh_token',
+                client_id: clientId,
+                client_secret: clientSecret,
+                refresh_token: refreshToken
+            })
+        })
+
+        if (!response.ok) {
+            const errorText = await response.text()
+            throw new Error(`Token refresh failed: ${response.status} ${errorText}`)
+        }
+
+        const tokenData = await response.json()
+        
+        if (!tokenData.access_token) {
+            throw new Error('No access token received from ServiceNow')
+        }
+
+        accessToken = tokenData.access_token
+        tokenExpiry = Date.now() + ((tokenData.expires_in || 3600) - 60) * 1000
+
+        console.log('Successfully refreshed OAuth 2.0 token')
+        return accessToken
+    } catch (error) {
+        console.error('Failed to refresh OAuth 2.0 token:', error)
+        throw error
+    }
+}
+
+async function makeStandardHeaders() {
+    const username = getConfig('username') || process.env.SERVICENOW_USERNAME
+    const password = getConfig('password') || process.env.SERVICENOW_PASSWORD
+    
+    if (username && password) {
+        return {
             'Authorization': `Basic ${encodeForBasicAuth(username, password)}`,
-            'Content-Type': 'application/json' // Add other headers as needed
+            'Content-Type': 'application/json'
+        }
+    } else {
+        if (!isOAuthConfigured()) {
+            throw new Error('No authentication method configured. Please provide either username/password or OAuth 2.0 credentials (client_id, client_secret, refresh_token)')
+        }
+        
+        try {
+            const token = await getAccessToken()
+            return {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            }
+        } catch (error) {
+            console.error('Failed to create headers:', error)
+            throw error
         }
     }
-    return stdHdrs
 }
 
 async function getComments(sysId) {
@@ -39,7 +118,7 @@ async function getComments(sysId) {
     try {
         const response = await fetch(apiUrl, {
             method: 'GET',
-            headers: makeStandardHeaders()
+            headers: await makeStandardHeaders()
         });
 
         if (!response.ok) {
@@ -53,20 +132,29 @@ async function getComments(sysId) {
     }
 }
 
-async function addComment(sysId, comment) {
+async function addCloseNotes(sysId, comment) {
     const instanceUrl = getInstanceUrl()
     const apiUrl = `${instanceUrl}/api/now/table/incident/${sysId}`
-    const data = { comments: comment }
+    const data = { close_notes: comment }
     try {
         const response = await fetch(apiUrl, {
             method: 'PATCH',
-            headers: makeStandardHeaders(),
+            headers: await makeStandardHeaders(),
             body: JSON.stringify(data),
         });
 
+
+        console.log("jsonstrnigltfy", apiUrl, JSON.stringify( {
+            method: 'PATCH',
+            headers: await makeStandardHeaders(),
+            body: JSON.stringify(data),
+        }))
+        
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
+
+        console.log("addCloseNotes:", sysId, comment)
 
         const responseData = await response.json();
         return responseData;
@@ -79,11 +167,11 @@ async function getIncidents(sysId, count) {
     const instanceUrl = getInstanceUrl()
     const apiUrl = sysId ?
         `${instanceUrl}/api/now/table/incident/${sysId}` :
-        `${instanceUrl}/api/now/table/incident?sysparm_limit=${count}&sysparm_query=active=true^ORDERBYDESCsys_created_on`;
+        `${instanceUrl}/api/now/table/incident?sysparm_limit=${count}&sysparm_query=active=true^sys_created_on>=javascript:gs.hoursAgoStart(${process.env.SERVICENOW_HOURS_AGO || 100000})^ORDERBYDESCsys_created_on`;
     try {
         const response = await fetch(apiUrl, {
             method: 'GET',
-            headers: makeStandardHeaders()
+            headers: await makeStandardHeaders()
         });
 
         if (!response.ok) {
@@ -105,14 +193,14 @@ async function getIncidents(sysId, count) {
 
 async function updateIncident(sysId, data) {
     if (data.comment) {
-        return addComment(sysId, data.comment)
+        return addCloseNotes(sysId, data.comment)
     }
     const instanceUrl = getInstanceUrl()
     const apiUrl = `${instanceUrl}/api/now/table/incident/${sysId}`
     try {
         const response = await fetch(apiUrl, {
             method: 'PUT',
-            headers: makeStandardHeaders(),
+            headers: await makeStandardHeaders(),
             body: JSON.stringify(data),
         });
 
@@ -164,7 +252,7 @@ export async function queryInstances(resolver, inst, queryAll) {
         if (sys_id) {
             r = await getIncidents(pathQueryValue(inst), queryAll ? 100 : 1)
         } else if (queryAll) {
-            r = await getIncidents(undefined, 1)
+            r = await getIncidents(undefined, 100)
         } else {
             return []
         }
@@ -179,7 +267,7 @@ export async function queryInstances(resolver, inst, queryAll) {
 
 async function handleSubs(resolver) {
     console.log('fetching incidents ...')
-    const result = await getIncidents(undefined, 1)
+    const result = await getIncidents(undefined, 100)
     if (result instanceof Array) {
         for (let i = 0; i < result.length; ++i) {
             const incident = result[i]
