@@ -92,12 +92,29 @@ async function getIncidents(sysId, count) {
 
         const result = await response.json();
         const data = result.result
+        const final_result = new Array()
         for (let i = 0; i < data.length; ++i) {
             const d = data[i]
             const comments = await getComments(d.sys_id)
-            d.comments = comments
+            let cs = ''
+            comments.forEach(element => {
+                if (element.value.length > 15) {
+                    cs = `${cs}\n${element.value}`
+                }
+            });
+            final_result.push({
+                short_description: d.short_description,
+                comments: cs,
+                active: d.active,
+                number: d.number,
+                opened_at: d.opened_at,
+                sys_class_name: d.sys_class_name,
+                sys_created_by: d.sys_created_by,
+                sys_created_on: d.sys_created_on,
+                sys_id: d.sys_id
+            })
         }
-        return data
+        return final_result
     } catch (error) {
         return { error: error.message };
     }
@@ -183,8 +200,8 @@ async function handleSubs(resolver) {
     if (result instanceof Array) {
         for (let i = 0; i < result.length; ++i) {
             const incident = result[i]
-	    console.log('processing incident ' + incident.sys_id)
-	    const inst = asIncidentInstance(JSON.stringify(incident), incident.sys_id)
+            console.log('processing incident ' + incident.sys_id)
+            const inst = asIncidentInstance(JSON.stringify(incident), incident.sys_id)
             await resolver.onSubscription(inst, true)
         }
     }
