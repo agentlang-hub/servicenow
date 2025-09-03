@@ -6,6 +6,26 @@ const encodeForBasicAuth = al_http.encodeForBasicAuth
 const makeInstance = al_module.makeInstance
 const isInstanceOfType = al_module.isInstanceOfType
 
+async function fetchWithTimeout(url, options = {}, timeoutMs = 10000) {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+    
+    try {
+        const response = await fetch(url, {
+            ...options,
+            signal: controller.signal
+        })
+        clearTimeout(timeoutId)
+        return response
+    } catch (error) {
+        clearTimeout(timeoutId)
+        if (error.name === 'AbortError') {
+            throw new Error(`Request timeout after ${timeoutMs}ms`)
+        }
+        throw error
+    }
+}
+
 function getConfig(k) {
     try {
         return al_integmanager.getIntegrationConfig('servicenow', k)
@@ -50,7 +70,7 @@ async function getAccessToken() {
 
     try {
         const tokenUrl = `${instanceUrl}/oauth_token.do`
-        const response = await fetch(tokenUrl, {
+        const response = await fetchWithTimeout(tokenUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded'
@@ -116,7 +136,7 @@ async function getComments(sysId) {
     const instanceUrl = getInstanceUrl()
     const apiUrl = `${instanceUrl}/api/now/table/sys_journal_field?sysparm_display_value=true&sysparm_query=element=comments^element_id=${sysId}`
     try {
-        const response = await fetch(apiUrl, {
+        const response = await fetchWithTimeout(apiUrl, {
             method: 'GET',
             headers: await makeStandardHeaders()
         });
@@ -128,6 +148,7 @@ async function getComments(sysId) {
         const data = await response.json();
         return data.result
     } catch (error) {
+        console.error('Failed to get comments:', error)
         return []
     }
 }
@@ -137,7 +158,7 @@ async function addCloseNotes(sysId, comment) {
     const apiUrl = `${instanceUrl}/api/now/table/incident/${sysId}`
     const data = { close_notes: comment }
     try {
-        const response = await fetch(apiUrl, {
+        const response = await fetchWithTimeout(apiUrl, {
             method: 'PATCH',
             headers: await makeStandardHeaders(),
             body: JSON.stringify(data),
@@ -159,6 +180,7 @@ async function addCloseNotes(sysId, comment) {
         const responseData = await response.json();
         return responseData;
     } catch (error) {
+        console.error('Failed to add close notes:', error)
         return { error: error }
     }
 }
@@ -169,7 +191,7 @@ async function getIncidents(sysId, count) {
         `${instanceUrl}/api/now/table/incident/${sysId}` :
         `${instanceUrl}/api/now/table/incident?sysparm_limit=${count}&sysparm_query=active=true^sys_created_on>=javascript:gs.hoursAgoStart(${process.env.SERVICENOW_HOURS_AGO || 100000})^ORDERBYDESCsys_created_on`;
     try {
-        const response = await fetch(apiUrl, {
+        const response = await fetchWithTimeout(apiUrl, {
             method: 'GET',
             headers: await makeStandardHeaders()
         });
@@ -187,6 +209,7 @@ async function getIncidents(sysId, count) {
         }
         return data
     } catch (error) {
+        console.error('Failed to get incidents:', error)
         return { error: error.message };
     }
 }
@@ -198,7 +221,7 @@ async function updateIncident(sysId, data) {
     const instanceUrl = getInstanceUrl()
     const apiUrl = `${instanceUrl}/api/now/table/incident/${sysId}`
     try {
-        const response = await fetch(apiUrl, {
+        const response = await fetchWithTimeout(apiUrl, {
             method: 'PUT',
             headers: await makeStandardHeaders(),
             body: JSON.stringify(data),
@@ -211,6 +234,7 @@ async function updateIncident(sysId, data) {
         const responseData = await response.json();
         return responseData;
     } catch (error) {
+        console.error('Failed to update incident:', error)
         return { error: error }
     }
 }
