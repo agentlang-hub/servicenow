@@ -223,14 +223,6 @@ function getSysId(inst) {
     return inst.lookup('sys_id')
 }
 
-function pathQueryValue(inst) {
-    const p = inst.lookupQueryVal('__path__')
-    if (p) {
-        return p.split('/')[1]
-    }
-    return undefined
-}
-
 function asIncidentInstance(data, sys_id) {
     return makeInstance('servicenow', 'incident', new Map().set('data', data).set('sys_id', data.sys_id || sys_id))
 }
@@ -250,7 +242,7 @@ export async function queryInstances(resolver, inst, queryAll) {
         const sys_id = inst.lookupQueryVal('sys_id')
         let r = []
         if (sys_id) {
-            r = await getIncidents(pathQueryValue(inst), queryAll ? 100 : 1)
+            r = await getIncidents(sys_id, queryAll ? 100 : 1)
         } else if (queryAll) {
             r = await getIncidents(undefined, 100)
         } else {
