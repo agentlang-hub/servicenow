@@ -201,7 +201,8 @@ async function getIncidents(sysId, count) {
         }
 
         const result = await response.json();
-        const data = result.result
+        const r = result.result
+	const data = (r instanceof Array) ? r : [r]
         const final_result = new Array()
         for (let i = 0; i < data.length; ++i) {
             const d = data[i]
@@ -300,7 +301,7 @@ export async function queryInstances(resolver, inst, queryAll) {
 
 async function handleSubs(resolver) {
     console.log('fetching incidents ...')
-    const result = await getIncidents(undefined, 100)
+    const result = await getIncidents(undefined, 1)
     if (result instanceof Array) {
         for (let i = 0; i < result.length; ++i) {
             const incident = result[i]
