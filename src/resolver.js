@@ -6,7 +6,7 @@ const encodeForBasicAuth = al_http.encodeForBasicAuth
 const makeInstance = al_module.makeInstance
 const isInstanceOfType = al_module.isInstanceOfType
 
-async function fetchWithTimeout(url, options = {}, timeoutMs = 10000) {
+async function fetchWithTimeout(url, options = {}, timeoutMs = 30000) {
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
     
@@ -301,11 +301,11 @@ export async function queryInstances(resolver, inst, queryAll) {
 
 async function handleSubs(resolver) {
     console.log('fetching incidents ...')
-    const result = await getIncidents(undefined, 1)
+    const result = await getIncidents(undefined, 100)
     if (result instanceof Array) {
         for (let i = 0; i < result.length; ++i) {
             const incident = result[i]
-            console.log('processing incident ' + incident.sys_id)
+            console.log('processing incident ' + incident.sys_id + ' ' + incident.short_description)
 	    const desc = `${incident.short_description}.${incident.comments ? incident.comments : ''}`
             const inst = asIncidentInstance(JSON.stringify({description: desc}), incident.sys_id)
             await resolver.onSubscription(inst, true)
