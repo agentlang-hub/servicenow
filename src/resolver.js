@@ -35,6 +35,15 @@ function getConfig(k) {
     }
 }
 
+function getSelectedSysIds(table) {
+    const envVar = table === 'incident' ? 'SELECT_INCIDENTS' : 'SELECT_TASKS'
+    const envValue = process.env[envVar]
+    if (!envValue) {
+        return null
+    }
+    return envValue.split(',').map(id => id.trim()).filter(id => id.length > 0)
+}
+
 let instUrl = undefined
 
 function getInstanceUrl() {
@@ -190,9 +199,18 @@ async function addCloseNotes(sysId, comment, table = Incident) {
 
 async function getIncidents(sysId, count, table = Incident) {
     const instanceUrl = getInstanceUrl()
-    const apiUrl = sysId ?
-          `${instanceUrl}/api/now/table/${table}/${sysId}` :
-          `${instanceUrl}/api/now/table/${table}?sysparm_limit=${count}&sysparm_query=active=true^sys_created_on>=javascript:gs.hoursAgoStart(${process.env.SERVICENOW_HOURS_AGO || 100000})^ORDERBYDESCsys_created_on`;
+    const selectedSysIds = getSelectedSysIds(table)
+    
+    let apiUrl
+    if (sysId) {
+        apiUrl = `${instanceUrl}/api/now/table/${table}/${sysId}`
+    } else if (selectedSysIds && selectedSysIds.length > 0) {
+        // Build query for specific sys_ids
+        const sysIdQuery = selectedSysIds.map(id => `sys_id=${id}`).join('^OR^')
+        apiUrl = `${instanceUrl}/api/now/table/${table}?sysparm_limit=${count}&sysparm_query=${sysIdQuery}`
+    } else {
+        apiUrl = `${instanceUrl}/api/now/table/${table}?sysparm_limit=${count}&sysparm_query=active=true^sys_created_on>=javascript:gs.hoursAgoStart(${process.env.SERVICENOW_HOURS_AGO || 100000})^ORDERBYDESCsys_created_on`
+    }
     try {
         const response = await fetchWithTimeout(apiUrl, {
             method: 'GET',
@@ -337,17 +355,32 @@ async function getAndProcessIncidents(resolver, table) {
 }
 
 async function handleSubs(resolver) {
-    console.log('fetching incidents ...')
-    await getAndProcessIncidents(resolver, Incident)
-    console.log('fetching tasks ...')
+    const selectedIncidents = getSelectedSysIds('incident')
+    const selectedTasks = getSelectedSysIds('sc_task')
+
+    if (selectedTasks) {
+        console.log(`fetching selected tasks: ${selectedTasks.join(', ')}`)
+    } else {
+        console.log('fetching tasks ...')
+    }
     await getAndProcessIncidents(resolver, Task)
+
+    if (selectedIncidents) {
+        console.log(`fetching selected incidents: ${selectedIncidents.join(', ')}`)
+    } else {
+        console.log('fetching incidents ...')
+    }
+    await getAndProcessIncidents(resolver, Incident)
 }
 
 export async function subs(resolver) {
     await handleSubs(resolver)
+    const intervalMinutes = parseInt(process.env.SERVICENOW_POLL_INTERVAL_MINUTES) || 10
+    const intervalMs = intervalMinutes * 60 * 1000
+    console.log(`Setting ServiceNow polling interval to ${intervalMinutes} minutes`)
     setInterval(async () => {
         await handleSubs(resolver)
-    }, 60000 * 2)
+    }, intervalMs)
 }
 
 export function assignIncident(sys_id, userEmail) {
