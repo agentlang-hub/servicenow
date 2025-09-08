@@ -153,9 +153,12 @@ async function getComments(sysId) {
     }
 }
 
-async function addCloseNotes(sysId, comment) {
+const Incident = 'incident'
+const Task = 'sc_task'
+
+async function addCloseNotes(sysId, comment, table = Incident) {
     const instanceUrl = getInstanceUrl()
-    const apiUrl = `${instanceUrl}/api/now/table/incident/${sysId}`
+    const apiUrl = `${instanceUrl}/api/now/table/${table}/${sysId}`
     const data = { close_notes: comment }
     try {
         const response = await fetchWithTimeout(apiUrl, {
@@ -185,11 +188,11 @@ async function addCloseNotes(sysId, comment) {
     }
 }
 
-async function getIncidents(sysId, count) {
+async function getIncidents(sysId, count, table = Incident) {
     const instanceUrl = getInstanceUrl()
     const apiUrl = sysId ?
-        `${instanceUrl}/api/now/table/incident/${sysId}` :
-        `${instanceUrl}/api/now/table/incident?sysparm_limit=${count}&sysparm_query=active=true^sys_created_on>=javascript:gs.hoursAgoStart(${process.env.SERVICENOW_HOURS_AGO || 100000})^ORDERBYDESCsys_created_on`;
+          `${instanceUrl}/api/now/table/${table}/${sysId}` :
+          `${instanceUrl}/api/now/table/${table}?sysparm_limit=${count}&sysparm_query=active=true^sys_created_on>=javascript:gs.hoursAgoStart(${process.env.SERVICENOW_HOURS_AGO || 100000})^ORDERBYDESCsys_created_on`;
     try {
         const response = await fetchWithTimeout(apiUrl, {
             method: 'GET',
@@ -202,17 +205,21 @@ async function getIncidents(sysId, count) {
 
         const result = await response.json();
         const r = result.result
-	const data = (r instanceof Array) ? r : [r]
+	    const data = (r instanceof Array) ? r : [r]
         const final_result = new Array()
         for (let i = 0; i < data.length; ++i) {
             const d = data[i]
-            const comments = await getComments(d.sys_id)
+            const comments = (table == Incident) ? await getComments(d.sys_id) : undefined
             let cs = ''
-            comments.forEach(element => {
-                if (element.value.length > 15) {
-                    cs = `${cs}\n${element.value}`
-                }
-            });
+	    if (comments) {
+		comments.forEach(element => {
+                    if (element.value.length > 15) {
+			cs = `${cs}\n${element.value}`
+                    }
+		});
+	    } else {
+		cs = d.description
+	    }
             final_result.push({
                 short_description: d.short_description,
                 comments: cs,
@@ -232,12 +239,17 @@ async function getIncidents(sysId, count) {
     }
 }
 
-async function updateIncident(sysId, data) {
-    if (data.comment) {
-        return addCloseNotes(sysId, data.comment)
-    }
+async function updateIncident(sysId, data, table = Incident) {
+    /*if (data.comment) {
+        return addCloseNotes(sysId, data.comment, table)
+    }*/
     const instanceUrl = getInstanceUrl()
-    const apiUrl = `${instanceUrl}/api/now/table/incident/${sysId}`
+    const apiUrl = `${instanceUrl}/api/now/table/${table}/${sysId}`
+    data.state = table == Incident ? "6" : "3"
+    data.close_code = "Resolved"
+    data.close_notes = data.comment || 'Closed'
+    data.closed_at = new Date().toISOString()
+    data.active = false
     try {
         const response = await fetchWithTimeout(apiUrl, {
             method: 'PUT',
@@ -249,10 +261,11 @@ async function updateIncident(sysId, data) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
 
+        console.log(`Resolved ${table} ${sysId} with comments ${data.close_notes}`)
         const responseData = await response.json();
         return responseData;
     } catch (error) {
-        console.error('Failed to update incident:', error)
+        console.error(`Failed to update ${table}:`, error)
         return { error: error }
     }
 }
@@ -262,55 +275,72 @@ function isIncident(obj) {
 }
 
 function getSysId(inst) {
-    return inst.lookup('sys_id')
+    const s = inst.lookup('sys_id')
+    return s.split('/')[0]
+}
+
+function getSysType(inst) {
+    const s = inst.lookup('sys_id')
+    return s.split('/')[1]
 }
 
 function asIncidentInstance(data, sys_id) {
-    return makeInstance('servicenow', 'incident', new Map().set('data', data).set('sys_id', data.sys_id || sys_id))
+    return makeInstance('servicenow', 'incident', new Map().set('data', data).set('sys_id', sys_id))
 }
 
 export async function updateInstance(resolver, inst, newAttrs) {
     if (isIncident(inst)) {
         const sys_id = getSysId(inst)
-        let r = await updateIncident(sys_id, newAttrs.get('data'))
-        return asIncidentInstance(r, sys_id)
+	const table = getSysType(inst)
+        let r = await updateIncident(sys_id, newAttrs.get('data'), table)
+        return asIncidentInstance(r, `${sys_id}/${table}`)
     } else {
         throw new Error(`Cannot update instance ${inst}`)
     }
 }
 
-export async function queryInstances(resolver, inst, queryAll) {
+const MAX_RESULTS=100
+
+export async function queryInstances(resolver, inst, queryAll, table = Incident) {
     if (isIncident(inst)) {
-        const sys_id = inst.lookupQueryVal('sys_id')
+	const s = inst.lookupQueryVal('sys_id').split('/')
+        const sys_id = s ? s[0] : undefined
+	table = sys_id ? s[1] : table
         let r = []
         if (sys_id) {
-            r = await getIncidents(sys_id, queryAll ? 100 : 1)
+            r = await getIncidents(sys_id, queryAll ? MAX_RESULTS : 1, table)
         } else if (queryAll) {
-            r = await getIncidents(undefined, 100)
+            r = await getIncidents(undefined, MAX_RESULTS, table)
         } else {
             return []
         }
         if (!(r instanceof Array)) {
             r = [r]
         }
-        return r.map(asIncidentInstance)
+        return r.map((data) => { return asIncidentInstance(data, `${data.sys_id}/${table}`) })
     } else {
         return []
     }
 }
 
-async function handleSubs(resolver) {
-    console.log('fetching incidents ...')
-    const result = await getIncidents(undefined, 100)
+async function getAndProcessIncidents(resolver, table) {
+    const result = await getIncidents(undefined, MAX_RESULTS, table)
     if (result instanceof Array) {
         for (let i = 0; i < result.length; ++i) {
             const incident = result[i]
-            console.log('processing incident ' + incident.sys_id + ' ' + incident.short_description)
+            console.log(`processing ${table} ${incident.sys_id} ${incident.short_description}`)
 	    const desc = `${incident.short_description}.${incident.comments ? incident.comments : ''}`
-            const inst = asIncidentInstance(JSON.stringify({description: desc}), incident.sys_id)
+            const inst = asIncidentInstance(JSON.stringify({description: desc}), `${incident.sys_id}/${table}`)
             await resolver.onSubscription(inst, true)
         }
     }
+}
+
+async function handleSubs(resolver) {
+    console.log('fetching incidents ...')
+    await getAndProcessIncidents(resolver, Incident)
+    console.log('fetching tasks ...')
+    await getAndProcessIncidents(resolver, Task)
 }
 
 export async function subs(resolver) {
