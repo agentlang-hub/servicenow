@@ -265,7 +265,7 @@ async function updateIncident(sysId, data, table = Incident) {
         const responseData = await response.json();
         return responseData;
     } catch (error) {
-        console.error('Failed to update ${table}:', error)
+        console.error(`Failed to update ${table}:`, error)
         return { error: error }
     }
 }
@@ -299,6 +299,8 @@ export async function updateInstance(resolver, inst, newAttrs) {
     }
 }
 
+const MAX_RESULTS=100
+
 export async function queryInstances(resolver, inst, queryAll, table = Incident) {
     if (isIncident(inst)) {
 	const s = inst.lookupQueryVal('sys_id').split('/')
@@ -306,9 +308,9 @@ export async function queryInstances(resolver, inst, queryAll, table = Incident)
 	table = sys_id ? s[1] : table
         let r = []
         if (sys_id) {
-            r = await getIncidents(sys_id, queryAll ? 100 : 1, table)
+            r = await getIncidents(sys_id, queryAll ? MAX_RESULTS : 1, table)
         } else if (queryAll) {
-            r = await getIncidents(undefined, 100, table)
+            r = await getIncidents(undefined, MAX_RESULTS, table)
         } else {
             return []
         }
@@ -322,7 +324,7 @@ export async function queryInstances(resolver, inst, queryAll, table = Incident)
 }
 
 async function getAndProcessIncidents(resolver, table) {
-    const result = await getIncidents(undefined, 100, table)
+    const result = await getIncidents(undefined, MAX_RESULTS, table)
     if (result instanceof Array) {
         for (let i = 0; i < result.length; ++i) {
             const incident = result[i]
