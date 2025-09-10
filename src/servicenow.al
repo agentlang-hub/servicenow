@@ -40,12 +40,12 @@ workflow getTasks {
 
 resolver servicenowincident [servicenow/incident] {
     update r.updateInstance,
-    query r.queryInstances,
-    subscribe r.subs
+    query r.queryInstancesIncidents,
+    subscribe r.subsIncidents
 }
 
 resolver servicenowtask [servicenow/task] {
     update r.updateInstance,
-    query r.queryInstances,
-    subscribe r.subs
+    query r.queryInstancesTasks,
+    subscribe r.subsTasks
 }
