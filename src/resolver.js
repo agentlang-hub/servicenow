@@ -35,9 +35,12 @@ function getConfig(k) {
     }
 }
 
-function getSelectedSysIds(table) {
-    const envVar = table === 'incident' ? 'SELECT_INCIDENTS' : 'SELECT_TASKS'
-    const envValue = process.env[envVar]
+function getSelectedSysIds(tableType) {
+    const config = TABLE_CONFIG[tableType]
+    if (!config) {
+        return null
+    }
+    const envValue = process.env[config.envVar]
     if (!envValue) {
         return null
     }
@@ -162,12 +165,33 @@ async function getComments(sysId) {
     }
 }
 
-const Incident = 'incident'
-const Task = 'sc_task'
+// Table configuration mapping
+const TABLE_CONFIG = {
+    'incident': {
+        tableName: 'incident',
+        entityType: 'servicenow/incident',
+        hasComments: true,
+        envVar: 'SELECT_INCIDENTS'
+    },
+    'task': {
+        tableName: 'sc_task', 
+        entityType: 'servicenow/task',
+        hasComments: false,
+        envVar: 'SELECT_TASKS'
+    }
+}
 
-async function addCloseNotes(sysId, comment, table = Incident) {
+const Incident = 'incident'
+const Task = 'task'
+
+async function addCloseNotes(sysId, comment, tableType = Incident) {
+    const config = TABLE_CONFIG[tableType]
+    if (!config) {
+        throw new Error(`Unknown table type: ${tableType}`)
+    }
+    
     const instanceUrl = getInstanceUrl()
-    const apiUrl = `${instanceUrl}/api/now/table/${table}/${sysId}`
+    const apiUrl = `${instanceUrl}/api/now/table/${config.tableName}/${sysId}`
     const data = { close_notes: comment }
     try {
         const response = await fetchWithTimeout(apiUrl, {
@@ -197,19 +221,24 @@ async function addCloseNotes(sysId, comment, table = Incident) {
     }
 }
 
-async function getIncidents(sysId, count, table = Incident) {
+async function getRecords(sysId, count, tableType = Task) {
+    const config = TABLE_CONFIG[tableType]
+    if (!config) {
+        throw new Error(`Unknown table type: ${tableType}`)
+    }
+    
     const instanceUrl = getInstanceUrl()
-    const selectedSysIds = getSelectedSysIds(table)
+    const selectedSysIds = getSelectedSysIds(tableType)
     
     let apiUrl
     if (sysId) {
-        apiUrl = `${instanceUrl}/api/now/table/${table}/${sysId}`
+        apiUrl = `${instanceUrl}/api/now/table/${config.tableName}/${sysId}`
     } else if (selectedSysIds && selectedSysIds.length > 0) {
         // Build query for specific sys_ids
         const sysIdQuery = selectedSysIds.map(id => `sys_id=${id}`).join('^OR^')
-        apiUrl = `${instanceUrl}/api/now/table/${table}?sysparm_limit=${count}&sysparm_query=${sysIdQuery}`
+        apiUrl = `${instanceUrl}/api/now/table/${config.tableName}?sysparm_limit=${count}&sysparm_query=${sysIdQuery}`
     } else {
-        apiUrl = `${instanceUrl}/api/now/table/${table}?sysparm_limit=${count}&sysparm_query=active=true^sys_created_on>=javascript:gs.hoursAgoStart(${process.env.SERVICENOW_HOURS_AGO || 100000})^ORDERBYDESCsys_created_on`
+        apiUrl = `${instanceUrl}/api/now/table/${config.tableName}?sysparm_limit=${count}&sysparm_query=active=true^sys_created_on>=javascript:gs.hoursAgoStart(${process.env.SERVICENOW_HOURS_AGO || 100000})^ORDERBYDESCsys_created_on`
     }
     try {
         const response = await fetchWithTimeout(apiUrl, {
@@ -227,7 +256,7 @@ async function getIncidents(sysId, count, table = Incident) {
         const final_result = new Array()
         for (let i = 0; i < data.length; ++i) {
             const d = data[i]
-            const comments = (table == Incident) ? await getComments(d.sys_id) : undefined
+            const comments = config.hasComments ? await getComments(d.sys_id) : undefined
             let cs = ''
 	    if (comments) {
 		comments.forEach(element => {
@@ -252,19 +281,24 @@ async function getIncidents(sysId, count, table = Incident) {
         }
         return final_result
     } catch (error) {
-        console.error('Failed to get incidents:', error)
+        console.error(`Failed to get ${tableType} records:`, error)
         return { error: error.message };
     }
 }
 
-async function updateIncident(sysId, data, table = Incident) {
+async function updateRecord(sysId, data, tableType = Incident) {
+    const config = TABLE_CONFIG[tableType]
+    if (!config) {
+        throw new Error(`Unknown table type: ${tableType}`)
+    }
+    
     /*if (data.comment) {
-        return addCloseNotes(sysId, data.comment, table)
+        return addCloseNotes(sysId, data.comment, tableType)
     }*/
     const instanceUrl = getInstanceUrl()
-    const apiUrl = `${instanceUrl}/api/now/table/${table}/${sysId}`
-    data.state = table == Incident ? "6" : "3"
-    data.close_code = "Resolved"
+    const apiUrl = `${instanceUrl}/api/now/table/${config.tableName}/${sysId}`
+    // data.state = tableType == Incident ? "6" : "3"
+    // data.close_code = "Resolved"
     data.close_notes = data.comment || 'Closed'
     data.closed_at = new Date().toISOString()
     data.active = false
@@ -275,21 +309,32 @@ async function updateIncident(sysId, data, table = Incident) {
             body: JSON.stringify(data),
         });
 
+        console.log("updateRecord1:", apiUrl, JSON.stringify(data),  await makeStandardHeaders())
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
 
-        console.log(`Resolved ${table} ${sysId} with comments ${data.close_notes}`)
+        console.log(`Resolved ${tableType} ${sysId} with comments ${data.close_notes}`)
         const responseData = await response.json();
         return responseData;
     } catch (error) {
-        console.error(`Failed to update ${table}:`, error)
+        console.error(`Failed to update ${tableType}:`, error)
         return { error: error }
     }
 }
 
 function isIncident(obj) {
     return isInstanceOfType(obj, 'servicenow/incident')
+}
+
+function isTask(obj) {
+    return isInstanceOfType(obj, 'servicenow/task')
+}
+
+function getEntityType(inst) {
+    if (isIncident(inst)) return 'incident'
+    if (isTask(inst)) return 'task'
+    return null
 }
 
 function getSysId(inst) {
@@ -302,16 +347,23 @@ function getSysType(inst) {
     return s.split('/')[1]
 }
 
-function asIncidentInstance(data, sys_id) {
-    return makeInstance('servicenow', 'incident', new Map().set('data', data).set('sys_id', sys_id))
+function asInstance(data, sys_id, entityType) {
+    const config = TABLE_CONFIG[entityType]
+    if (!config) {
+        throw new Error(`Unknown entity type: ${entityType}`)
+    }
+    return makeInstance('servicenow', entityType, new Map().set('data', data).set('sys_id', sys_id))
 }
 
 export async function updateInstance(resolver, inst, newAttrs) {
-    if (isIncident(inst)) {
+    const entityType = getEntityType(inst)
+    console.log("updateInstance1:", entityType, inst, newAttrs)
+    
+    if (entityType) {
         const sys_id = getSysId(inst)
-	const table = getSysType(inst)
-        let r = await updateIncident(sys_id, newAttrs.get('data'), table)
-        return asIncidentInstance(r, `${sys_id}/${table}`)
+        const table = getSysType(inst)
+        let r = await updateRecord(sys_id, newAttrs.get('data'), entityType)
+        return asInstance(r, `${sys_id}/${table}`, entityType)
     } else {
         throw new Error(`Cannot update instance ${inst}`)
     }
@@ -319,70 +371,95 @@ export async function updateInstance(resolver, inst, newAttrs) {
 
 const MAX_RESULTS=100
 
-export async function queryInstances(resolver, inst, queryAll, table = Incident) {
-    if (isIncident(inst)) {
-	const s = inst.lookupQueryVal('sys_id').split('/')
+export async function queryInstances(resolver, inst, queryAll, tableType = Incident) {
+    const entityType = getEntityType(inst)
+    if (entityType) {
+        const s = inst.lookupQueryVal('sys_id').split('/')
         const sys_id = s ? s[0] : undefined
-	table = sys_id ? s[1] : table
         let r = []
         if (sys_id) {
-            r = await getIncidents(sys_id, queryAll ? MAX_RESULTS : 1, table)
+            r = await getRecords(sys_id, queryAll ? MAX_RESULTS : 1, tableType)
         } else if (queryAll) {
-            r = await getIncidents(undefined, MAX_RESULTS, table)
+            r = await getRecords(undefined, MAX_RESULTS, tableType)
         } else {
             return []
         }
         if (!(r instanceof Array)) {
             r = [r]
         }
-        return r.map((data) => { return asIncidentInstance(data, `${data.sys_id}/${table}`) })
+        return r.map((data) => { return asInstance(data, `${data.sys_id}/${tableType}`, entityType) })
     } else {
         return []
     }
 }
 
-async function getAndProcessIncidents(resolver, table) {
-    const result = await getIncidents(undefined, MAX_RESULTS, table)
+export async function queryInstancesIncidents(resolver, inst, queryAll) {
+    return queryInstances(resolver, inst, queryAll, 'incident')
+}
+
+export async function queryInstancesTasks(resolver, inst, queryAll) {
+    return queryInstances(resolver, inst, queryAll, 'task')
+}
+
+async function getAndProcessRecords(resolver, tableType) {
+    const result = await getRecords(undefined, MAX_RESULTS, tableType)
     if (result instanceof Array) {
         for (let i = 0; i < result.length; ++i) {
-            const incident = result[i]
-            console.log(`processing ${table} ${incident.sys_id} ${incident.short_description}`)
-	    const desc = `${incident.short_description}.${incident.comments ? incident.comments : ''}`
-            const inst = asIncidentInstance(JSON.stringify({description: desc}), `${incident.sys_id}/${table}`)
+            const record = result[i]
+            console.log(`processing ${tableType} ${record.sys_id} ${record.short_description}`)
+            const desc = `${record.short_description}.${record.comments ? record.comments : ''}`
+            const inst = asInstance(JSON.stringify({description: desc}), `${record.sys_id}/${tableType}`, tableType)
             await resolver.onSubscription(inst, true)
         }
     }
 }
 
-async function handleSubs(resolver) {
+async function handleSubsIncidents(resolver) {
     const selectedIncidents = getSelectedSysIds('incident')
-    const selectedTasks = getSelectedSysIds('sc_task')
-
-    if (selectedTasks) {
-        console.log(`fetching selected tasks: ${selectedTasks.join(', ')}`)
-    } else {
-        console.log('fetching tasks ...')
-    }
-    await getAndProcessIncidents(resolver, Task)
 
     if (selectedIncidents) {
         console.log(`fetching selected incidents: ${selectedIncidents.join(', ')}`)
     } else {
         console.log('fetching incidents ...')
     }
-    await getAndProcessIncidents(resolver, Incident)
+    await getAndProcessRecords(resolver, 'incident')
 }
 
-export async function subs(resolver) {
-    await handleSubs(resolver)
+async function handleSubsTasks(resolver) {
+    const selectedTasks = getSelectedSysIds('task')
+
+    if (selectedTasks) {
+        console.log(`fetching selected tasks: ${selectedTasks.join(', ')}`)
+    } else {
+        console.log('fetching tasks ...')
+    }
+    await getAndProcessRecords(resolver, 'task')
+}
+
+export async function subsIncidents(resolver) {
+    await handleSubsIncidents(resolver)
     const intervalMinutes = parseInt(process.env.SERVICENOW_POLL_INTERVAL_MINUTES) || 10
     const intervalMs = intervalMinutes * 60 * 1000
     console.log(`Setting ServiceNow polling interval to ${intervalMinutes} minutes`)
     setInterval(async () => {
-        await handleSubs(resolver)
+        await handleSubsIncidents(resolver)
+    }, intervalMs)
+}
+
+export async function subsTasks(resolver) {
+    await handleSubsTasks(resolver)
+    const intervalMinutes = parseInt(process.env.SERVICENOW_POLL_INTERVAL_MINUTES) || 10
+    const intervalMs = intervalMinutes * 60 * 1000
+    console.log(`Setting ServiceNow polling interval to ${intervalMinutes} minutes`)
+    setInterval(async () => {
+        await handleSubsTasks(resolver)
     }, intervalMs)
 }
 
 export function assignIncident(sys_id, userEmail) {
     console.log(`Incident ${sys_id} assigned to ${userEmail}`)
+}
+
+export function assignTask(sys_id, userEmail) {
+    console.log(`Task ${sys_id} assigned to ${userEmail}`)
 }
