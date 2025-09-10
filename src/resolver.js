@@ -200,13 +200,6 @@ async function addCloseNotes(sysId, comment, tableType = Incident) {
             body: JSON.stringify(data),
         });
 
-
-        console.log("jsonstrnigltfy", apiUrl, JSON.stringify( {
-            method: 'PATCH',
-            headers: await makeStandardHeaders(),
-            body: JSON.stringify(data),
-        }))
-        
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -309,7 +302,6 @@ async function updateRecord(sysId, data, tableType = Incident) {
             body: JSON.stringify(data),
         });
 
-        console.log("updateRecord1:", apiUrl, JSON.stringify(data),  await makeStandardHeaders())
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -357,7 +349,6 @@ function asInstance(data, sys_id, entityType) {
 
 export async function updateInstance(resolver, inst, newAttrs) {
     const entityType = getEntityType(inst)
-    console.log("updateInstance1:", entityType, inst, newAttrs)
     
     if (entityType) {
         const sys_id = getSysId(inst)
