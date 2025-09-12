@@ -233,19 +233,11 @@ async function getRecords(sysId, count, tableType = Task) {
     } else {
         apiUrl = `${instanceUrl}/api/now/table/${config.tableName}?sysparm_limit=${count}&sysparm_query=active=true^sys_created_on>=javascript:gs.hoursAgoStart(${process.env.SERVICENOW_HOURS_AGO || 100000})^ORDERBYDESCsys_created_on`
     }
-    let statusFilter = ''
-        if (tableType === 'incident') {
-            statusFilter = '^stateIN1,2'
-        } else if (tableType === 'task') {
-            statusFilter = '^stateIN1,2,3'
-        }
-        
-        if (statusFilter) {
-            if (apiUrl.includes('sysparm_query=')) {
-                apiUrl = apiUrl.replace('sysparm_query=', `sysparm_query=${statusFilter.substring(1)}^`)
-            } else {
-                apiUrl = apiUrl + `?sysparm_query=${statusFilter.substring(1)}`
-            }
+    let statusFilter = '^stateIN1'
+    if (apiUrl.includes('sysparm_query=')) {
+        apiUrl = apiUrl.replace('sysparm_query=', `sysparm_query=${statusFilter.substring(1)}^`)
+    } else {
+        apiUrl = apiUrl + `?sysparm_query=${statusFilter.substring(1)}`
     }
     try {
         const response = await fetchWithTimeout(apiUrl, {
