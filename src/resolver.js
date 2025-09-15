@@ -303,7 +303,7 @@ async function updateRecord(sysId, data, tableType = Incident) {
     data.active = false
     try {
         const response = await fetchWithTimeout(apiUrl, {
-            method: 'PUT',
+            method: 'PATCH',
             headers: await makeStandardHeaders(),
             body: JSON.stringify(data),
         });
