@@ -10,14 +10,17 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 30000) {
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
     
+    console.log(`SERVICENOW RESOLVER: fetching ${url} with options ${JSON.stringify(options)}`)
     try {
         const response = await fetch(url, {
             ...options,
             signal: controller.signal
         })
+        console.log(`SERVICENOW RESOLVER: response: ${JSON.stringify(response)}`)
         clearTimeout(timeoutId)
         return response
     } catch (error) {
+        console.log(`SERVICENOW RESOLVER: error fetching ${url} with options ${JSON.stringify(options)}: ${error}`)
         clearTimeout(timeoutId)
         if (error.name === 'AbortError') {
             throw new Error(`Request timeout after ${timeoutMs}ms`)
@@ -296,11 +299,6 @@ async function updateRecord(sysId, data, tableType = Incident) {
     }*/
     const instanceUrl = getInstanceUrl()
     const apiUrl = `${instanceUrl}/api/now/table/${config.tableName}/${sysId}`
-    // data.state = tableType == Incident ? "6" : "3"
-    // data.close_code = "Resolved"
-    data.close_notes = data.comment || 'Closed'
-    data.closed_at = new Date().toISOString()
-    data.active = false
     try {
         const response = await fetchWithTimeout(apiUrl, {
             method: 'PATCH',
