@@ -10,7 +10,7 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 30000) {
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
     
-    console.log(`SERVICENOW RESOLVER: fetching ${url} with options ${JSON.stringify(options)}`)
+    console.log(`SERVICENOW RESOLVER: making http request ${options.method} ${url} with options ${JSON.stringify(options)}`)
     try {
         const response = await fetch(url, {
             ...options,
@@ -20,7 +20,7 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 30000) {
         clearTimeout(timeoutId)
         return response
     } catch (error) {
-        console.log(`SERVICENOW RESOLVER: error fetching ${url} with options ${JSON.stringify(options)}: ${error}`)
+        console.log(`SERVICENOW RESOLVER: error making http request ${options.method} ${url} with options ${JSON.stringify(options)}: ${error}`)
         clearTimeout(timeoutId)
         if (error.name === 'AbortError') {
             throw new Error(`Request timeout after ${timeoutMs}ms`)
