@@ -458,3 +458,44 @@ export function assignIncident(sys_id, userEmail) {
 export function assignTask(sys_id, userEmail) {
     console.log(`Task ${sys_id} assigned to ${userEmail}`)
 }
+
+export async function getManagerUser() {
+    const managerUsername = process.env.SERVICENOW_MANAGER_USERNAME || process.env.MANAGER_USERNAME
+    if (!managerUsername) {
+        console.error('Manager username not found in environment variables')
+        return null
+    }
+    
+    console.log(`Getting manager user: ${managerUsername}`)
+    
+    try {
+        const instanceUrl = getInstanceUrl()
+        const apiUrl = `${instanceUrl}/api/now/table/sys_user?sysparm_query=user_name=${managerUsername}`
+        
+        const response = await fetchWithTimeout(apiUrl, {
+            method: 'GET',
+            headers: await makeStandardHeaders()
+        })
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status} ${response.statusText}`)
+        }
+
+        const result = await response.json()
+        const users = result.result
+        
+        if (users && users.length > 0) {
+            const user = users[0]
+            console.log(`Found manager user: ${user.user_name} (${user.sys_id})`)
+            return {
+                id: user.sys_id,
+            }
+        } else {
+            console.error(`Manager user not found: ${managerUsername}`)
+            return null
+        }
+    } catch (error) {
+        console.error('Failed to fetch manager user:', error)
+        return null
+    }
+}

@@ -38,6 +38,10 @@ workflow getTasks {
     {task? {}}
 }
 
+workflow getManagerUser {
+    r.getManagerUser()
+}
+
 resolver servicenowincident [servicenow/incident] {
     update r.updateInstance,
     query r.queryInstancesIncidents,
