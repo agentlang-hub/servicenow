@@ -16,7 +16,7 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 30000) {
             ...options,
             signal: controller.signal
         })
-        console.log(`SERVICENOW RESOLVER: response: ${JSON.stringify(response)}`)
+        console.log(`SERVICENOW RESOLVER: response: ${response.status} ${response.statusText} ${response.ok}`)
         clearTimeout(timeoutId)
         return response
     } catch (error) {
