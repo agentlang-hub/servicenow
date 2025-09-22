@@ -239,7 +239,7 @@ async function getRecords(sysId, count, tableType = Task) {
     } else {
         apiUrl = `${instanceUrl}/api/now/table/${config.tableName}?sysparm_limit=${count}&sysparm_query=active=true^sys_created_on>=javascript:gs.hoursAgoStart(${process.env.SERVICENOW_HOURS_AGO || 100000})^ORDERBYDESCsys_created_on`
     }
-    let statusFilter = '^stateIN1'
+    let statusFilter = '^stateIN1,2'
     if (apiUrl.includes('sysparm_query=')) {
         apiUrl = apiUrl.replace('sysparm_query=', `sysparm_query=${statusFilter.substring(1)}^`)
     } else {
@@ -281,7 +281,9 @@ async function getRecords(sysId, count, tableType = Task) {
                 sys_class_name: d.sys_class_name,
                 sys_created_by: d.sys_created_by,
                 sys_created_on: d.sys_created_on,
-                sys_id: d.sys_id
+                sys_id: d.sys_id,
+                state: d.state,
+                state_display: d.state_display || d.state
             })
         }
         return final_result
@@ -346,12 +348,16 @@ function getSysType(inst) {
     return s.split('/')[1]
 }
 
-function asInstance(data, sys_id, entityType) {
+function asInstance(data, sys_id, entityType, status = null) {
     const config = TABLE_CONFIG[entityType]
     if (!config) {
         throw new Error(`Unknown entity type: ${entityType}`)
     }
-    return makeInstance('servicenow', entityType, new Map().set('data', data).set('sys_id', sys_id))
+    const instanceMap = new Map().set('data', data).set('sys_id', sys_id)
+    if (status !== null) {
+        instanceMap.set('status', status)
+    }
+    return makeInstance('servicenow', entityType, instanceMap)
 }
 
 export async function updateInstance(resolver, inst, newAttrs) {
@@ -385,7 +391,7 @@ export async function queryInstances(resolver, inst, queryAll, tableType = Incid
         if (!(r instanceof Array)) {
             r = [r]
         }
-        return r.map((data) => { return asInstance(data, `${data.sys_id}/${tableType}`, entityType) })
+        return r.map((data) => { return asInstance(data, `${data.sys_id}/${tableType}`, entityType, data.state_display || data.state) })
     } else {
         return []
     }
@@ -406,7 +412,7 @@ async function getAndProcessRecords(resolver, tableType) {
             const record = result[i]
             console.log(`processing ${tableType} ${record.sys_id} ${record.short_description}`)
             const desc = `${record.short_description}.${record.comments ? record.comments : ''}`
-            const inst = asInstance(JSON.stringify({description: desc}), `${record.sys_id}/${tableType}`, tableType)
+            const inst = asInstance(JSON.stringify({description: desc}), `${record.sys_id}/${tableType}`, tableType, record.state_display || record.state)
             await resolver.onSubscription(inst, true)
         }
     }

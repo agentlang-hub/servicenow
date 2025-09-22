@@ -4,11 +4,13 @@ import "resolver.js" @as r
 
 entity incident {
     sys_id String @id,
+    status String @optional,
     data Any @optional
 }
 
 entity task {
     sys_id String @id,
+    status String @optional,
     data Any @optional
 }
 
