@@ -315,7 +315,7 @@ async function updateRecord(sysId, data, tableType = Incident) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
 
-        console.log(`Resolved ${tableType} ${sysId} with comments ${data.close_notes}`)
+        console.log(`Resolved ${tableType} ${sysId}`)
         const responseData = await response.json();
         return responseData;
     } catch (error) {
